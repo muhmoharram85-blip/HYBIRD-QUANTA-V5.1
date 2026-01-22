@@ -1,7 +1,7 @@
 # =============================================
-# HYBRID QUANTA ULTIMATE v2026 - FINAL CLOUD VERSION
+# HYBRID QUANTA ULTIMATE v2026 - FINAL FIXED
 # المطور: محمد محرم
-# الوصف: نسخة متوافقة مع Render/Linux باستخدام Yahoo Finance
+# تم إصلاح أخطاء Syntax وأخطاء التوافق مع Linux
 # =============================================
 
 import yfinance as yf
@@ -13,12 +13,10 @@ import pytz
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import re
 
-# --- الإعدادات الفنية ---
+# --- الإعدادات ---
 SYMBOL = "BTC-USD" 
-
 vader = SentimentIntensityAnalyzer()
 
-# قاموس المشاعر المطور
 qtt_lexicon = {
     "growth": 0.92, "rally": 0.88, "bullish": 0.90, "uptrend": 0.85,
     "surge": 0.87, "etf": 0.82, "accumulation": 0.88, "institutional": 0.90,
@@ -32,7 +30,7 @@ RSS_FEEDS = [
     "https://cryptopotato.com/feed/"
 ]
 
-# --- دالة MACD (تم إصلاح فصل الأسطر) ---
+# --- دالة MACD (تم إصلاح فصل الأسطر لتجنب SyntaxError) ---
 def macd(series, fast=12, slow=26, signal=9):
     exp1 = series.ewm(span=fast, adjust=False).mean()
     exp2 = series.ewm(span=slow, adjust=False).mean()
@@ -51,23 +49,20 @@ def digital_root(price):
     except:
         return 0
 
-# --- اكتشاف فجوات القيمة العادلة FVG ---
+# --- اكتشاف FVG ---
 def detect_fvg(df):
     if df is None or len(df) < 5:
         return "NEUTRAL", 0.0
-    # فحص آخر الشموع المكتملة
     for i in range(len(df) - 4, 1, -1):
-        # Bullish FVG
         if df['Low'].iloc[i] > df['High'].iloc[i + 2]:
             gap_price = (df['Low'].iloc[i] + df['High'].iloc[i + 2]) / 2
             return "BULLISH_FVG", gap_price
-        # Bearish FVG
         if df['High'].iloc[i] < df['Low'].iloc[i + 2]:
             gap_price = (df['High'].iloc[i] + df['Low'].iloc[i + 2]) / 2
             return "BEARISH_FVG", gap_price
     return "NEUTRAL", 0.0
 
-# --- جلب وتحليل الأخبار ---
+# --- تحليل الأخبار ---
 def fetch_news():
     titles = []
     for url in RSS_FEEDS:
@@ -87,52 +82,35 @@ def analyze_sentiment(text):
     q_score = np.mean(q_scores) if q_scores else 0.5
     return np.clip(v_score * 0.6 + q_score * 0.4, 0.0, 1.0)
 
-# --- بناء التقرير النهائي ---
+# --- بناء التقرير ---
 def build_report(symbol):
     try:
         ticker = yf.Ticker(symbol)
         df = ticker.history(interval="15m", period="2d")
-        
-        if df.empty:
-            return "❌ خطأ: لم يتم العثور على بيانات للرمز."
+        if df.empty: return "❌ لا توجد بيانات"
 
         current_price = df['Close'].iloc[-1]
         root = digital_root(current_price)
         fvg_status, fvg_price = detect_fvg(df)
         
         _, _, hist = macd(df['Close'])
-        macd_val = hist.iloc[-1]
-        trend = "BULLISH 🟢" if macd_val > 0 else "BEARISH 🔴"
+        trend = "BULLISH 🟢" if hist.iloc[-1] > 0 else "BEARISH 🔴"
         
-        news_text = fetch_news()
-        score = analyze_sentiment(news_text)
-        sentiment_label = "إيجابي" if score > 0.6 else "سلبي" if score < 0.4 else "محايد"
-
+        score = analyze_sentiment(fetch_news())
+        
         report = f"""
-🚀 [تقرير ذكاء كوانتا الهجين v2026]
+🚀 [تقرير كوانتا النهائي v2026]
 ---------------------------------
-الأصل: {symbol}
-السعر الحالي: {current_price:.2f}
-التوقيت: {datetime.now(pytz.timezone('Africa/Cairo')).strftime('%Y-%m-%d %I:%M %p')}
-
-✅ التحليل الرقمي:
-- الجذر الرقمي: {root} ({'دورة قوية' if root in [1,9] else 'دورة عادية'})
-
-📊 التحليل الفني:
-- اتجاه MACD (15m): {trend}
-- حالة الفجوة (FVG): {fvg_status}
-- سعر الفجوة المستهدف: {fvg_price:.2f}
-
-📰 تحليل المشاعر (AI):
-- الدرجة: {score:.2f}
-- التصنيف: {sentiment_label}
-
+الأصل: {symbol} | السعر: {current_price:.2f}
+الجذر الرقمي: {root} | الاتجاه: {trend}
+حالة FVG: {fvg_status} | السعر: {fvg_price:.2f}
+درجة المشاعر: {score:.2f}
 ---------------------------------
-#كوانتا_فينتيك #تداول_ذكي #محمد_محرم
+#كوانتا_فينتيك #تداول_ذكي
 """
         return report
     except Exception as e:
-        return f"❌ خطأ تقني في النظام: {str(e)}"
+        return f"❌ خطأ: {str(e)}"
 
 if __name__ == "__main__":
     print(build_report(SYMBOL))
