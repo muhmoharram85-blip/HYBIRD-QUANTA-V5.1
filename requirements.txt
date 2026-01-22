@@ -1,7 +1,8 @@
-flask
+yfinance
 pandas
 numpy
-requests
-yfinance
-vaderSentiment
+feedparser
 pytz
+vaderSentiment
+flask
+requests
