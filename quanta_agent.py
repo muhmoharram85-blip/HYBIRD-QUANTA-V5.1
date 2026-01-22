@@ -1,9 +1,10 @@
 # =============================================
-# HYBRID QUANTA ULTIMATE v2026 - REVISED
+# HYBRID QUANTA ULTIMATE v2026 - YFINANCE VERSION
 # المطور: محمد محرم
+# التعديلات: استبدال MT5 بـ Yahoo Finance للتشغيل السحابي
 # =============================================
 
-import MetaTrader5 as mt5
+import yfinance as yf
 import pandas as pd
 import numpy as np
 import feedparser
@@ -13,13 +14,12 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import re
 
 # --- الإعدادات الفنية ---
-SYMBOL = "BTCUSD"
-TIMEFRAMES = {
-    "M15": mt5.TIMEFRAME_M15,
-    "H1": mt5.TIMEFRAME_H1,
-    "H4": mt5.TIMEFRAME_H4,
-    "D1": mt5.TIMEFRAME_D1,
-    "W1": mt5.TIMEFRAME_W1
+SYMBOL = "BTC-USD" # تحويل التنسيق ليتناسب مع ياهو
+TIMEFRAME_MAP = {
+    "M15": "15m",
+    "H1": "1h",
+    "H4": "4h",
+    "D1": "1d"
 }
 
 vader = SentimentIntensityAnalyzer()
@@ -38,7 +38,7 @@ RSS_FEEDS = [
 ]
 
 # ==========================
-# MACD - تم تصحيح فصل الأسطر هنا
+# MACD
 # ==========================
 def macd(series, fast=12, slow=26, signal=9):
     exp1 = series.ewm(span=fast, adjust=False).mean()
@@ -48,16 +48,11 @@ def macd(series, fast=12, slow=26, signal=9):
     hist = macd_line - signal_line
     return macd_line, signal_line, hist
 
-def macd_trend(df):
-    _, _, hist = macd(df['close'])
-    last = hist.iloc[-1]
-    return "BULLISH" if last > 0 else "BEARISH" if last < 0 else "NEUTRAL"
-
 # ==========================
 # Digital Root
 # ==========================
 def digital_root(price):
-    s = str(price).replace('.', '').replace('-', '').lstrip('0')
+    s = str(int(price)).replace('.', '').replace('-', '').lstrip('0')
     if not s: return 0
     total = sum(int(d) for d in s)
     return 1 + (total - 1) % 9 if total != 0 else 0
@@ -65,35 +60,20 @@ def digital_root(price):
 # ==========================
 # FVG Detection
 # ==========================
-def detect_fvg(symbol, tf):
-    rates = mt5.copy_rates_from_pos(symbol, tf, 0, 100)
-    if rates is None or len(rates) < 10:
+def detect_fvg(df):
+    if df is None or len(df) < 5:
         return "NO_DATA", 0.0
-    df = pd.DataFrame(rates)
     for i in range(len(df) - 3, 1, -1):
-        if df['low'].iloc[i] > df['high'].iloc[i + 2]:
-            gap_price = (df['low'].iloc[i] + df['high'].iloc[i + 2]) / 2
+        if df['Low'].iloc[i] > df['High'].iloc[i + 2]:
+            gap_price = (df['Low'].iloc[i] + df['High'].iloc[i + 2]) / 2
             return "BULLISH_FVG", gap_price
-        if df['high'].iloc[i] < df['low'].iloc[i + 2]:
-            gap_price = (df['high'].iloc[i] + df['low'].iloc[i + 2]) / 2
+        if df['High'].iloc[i] < df['Low'].iloc[i + 2]:
+            gap_price = (df['High'].iloc[i] + df['Low'].iloc[i + 2]) / 2
             return "BEARISH_FVG", gap_price
     return "NEUTRAL", 0.0
 
 # ==========================
-# Market Reaction
-# ==========================
-def market_reaction(symbol, tf):
-    rates = mt5.copy_rates_from_pos(symbol, tf, 0, 30)
-    if rates is None or len(rates) < 10:
-        return "NO_DATA"
-    df = pd.DataFrame(rates)
-    recent_vol = df['tick_volume'].iloc[-5:].mean()
-    past_vol = df['tick_volume'].iloc[-15:-5].mean()
-    if past_vol == 0: return "WEAK"
-    return "STRONG" if (recent_vol / past_vol) > 1.4 else "WEAK"
-
-# ==========================
-# Sentiment & Report
+# News Sentiment
 # ==========================
 def fetch_news():
     titles = []
@@ -106,6 +86,7 @@ def fetch_news():
     return " | ".join(titles[:5])
 
 def analyze_sentiment(text):
+    if not text: return 0.5
     clean_text = re.sub(r'<[^>]+>', '', text)
     v_score = (vader.polarity_scores(clean_text)['compound'] + 1) / 2
     words = clean_text.lower().split()
@@ -113,22 +94,41 @@ def analyze_sentiment(text):
     q_score = np.mean(q_scores) if q_scores else 0.5
     return np.clip(v_score * 0.6 + q_score * 0.4, 0.0, 1.0)
 
-def build_report(symbol, base_tf_name="M15"):
-    if not mt5.initialize(): return "❌ MT5 Error"
-    tick = mt5.symbol_info_tick(symbol)
-    if not tick: return "❌ Tick Error"
-    
-    price = tick.bid
-    root = digital_root(price)
-    fvg_status, fvg_price = detect_fvg(symbol, TIMEFRAMES[base_tf_name])
-    reaction = market_reaction(symbol, TIMEFRAMES[base_tf_name])
-    
-    news_text = fetch_news()
-    sentiment_score = analyze_sentiment(news_text)
-    
-    report = f"Original: {symbol} | Price: {price}\nDigital Root: {root}\nFVG: {fvg_status}\nSentiment: {sentiment_score:.2f}"
-    mt5.shutdown()
-    return report
+# ==========================
+# Report Builder
+# ==========================
+def build_report(symbol):
+    try:
+        ticker = yf.Ticker(symbol)
+        df_m15 = ticker.history(interval="15m", period="1d")
+        if df_m15.empty: return "❌ لا توجد بيانات من ياهو فايننس"
+        
+        current_price = df_m15['Close'].iloc[-1]
+        root = digital_root(current_price)
+        fvg_status, fvg_price = detect_fvg(df_m15)
+        
+        # MACD Trend
+        _, _, hist = macd(df_m15['Close'])
+        trend = "BULLISH" if hist.iloc[-1] > 0 else "BEARISH"
+        
+        news_text = fetch_news()
+        sentiment_score = analyze_sentiment(news_text)
+        
+        report = f"""
+[تقرير ذكاء كوانتا الهجين - نسخة السحاب]
+الأصل: {symbol} | السعر الحالي: {current_price:.2f}
+الوقت: {datetime.now(pytz.timezone('Africa/Cairo')).strftime('%Y-%m-%d %I:%M %p')}
+
+الجذر الرقمي: {root}
+اتجاه MACD (15m): {trend}
+حالة FVG: {fvg_status} | السعر: {fvg_price:.2f}
+درجة المشاعر: {sentiment_score:.2f}
+---------------------------------
+#كوانتا_فينتيك #تداول_ذكي
+"""
+        return report
+    except Exception as e:
+        return f"❌ خطأ تقني: {str(e)}"
 
 if __name__ == "__main__":
-    print(build_report(SYMBOL, "M15"))
+    print(build_report(SYMBOL))
