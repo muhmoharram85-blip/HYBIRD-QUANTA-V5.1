@@ -1,1 +1,7 @@
-ccxt
+flask==3.0.3
+pandas==2.2.3
+numpy==2.0.2
+feedparser==6.0.11
+vaderSentiment==3.3.2
+ccxt==4.3.1
+pytz==2024.2
