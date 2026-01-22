@@ -1,7 +1,7 @@
 # =============================================
-# HYBRID QUANTA ULTIMATE v2026 - YFINANCE VERSION
+# HYBRID QUANTA ULTIMATE v2026 - FINAL CLOUD VERSION
 # المطور: محمد محرم
-# التعديلات: استبدال MT5 بـ Yahoo Finance للتشغيل السحابي
+# الوصف: نسخة متوافقة مع Render/Linux باستخدام Yahoo Finance
 # =============================================
 
 import yfinance as yf
@@ -14,16 +14,11 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import re
 
 # --- الإعدادات الفنية ---
-SYMBOL = "BTC-USD" # تحويل التنسيق ليتناسب مع ياهو
-TIMEFRAME_MAP = {
-    "M15": "15m",
-    "H1": "1h",
-    "H4": "4h",
-    "D1": "1d"
-}
+SYMBOL = "BTC-USD" 
 
 vader = SentimentIntensityAnalyzer()
 
+# قاموس المشاعر المطور
 qtt_lexicon = {
     "growth": 0.92, "rally": 0.88, "bullish": 0.90, "uptrend": 0.85,
     "surge": 0.87, "etf": 0.82, "accumulation": 0.88, "institutional": 0.90,
@@ -37,9 +32,7 @@ RSS_FEEDS = [
     "https://cryptopotato.com/feed/"
 ]
 
-# ==========================
-# MACD
-# ==========================
+# --- دالة MACD (تم إصلاح فصل الأسطر) ---
 def macd(series, fast=12, slow=26, signal=9):
     exp1 = series.ewm(span=fast, adjust=False).mean()
     exp2 = series.ewm(span=slow, adjust=False).mean()
@@ -48,33 +41,33 @@ def macd(series, fast=12, slow=26, signal=9):
     hist = macd_line - signal_line
     return macd_line, signal_line, hist
 
-# ==========================
-# Digital Root
-# ==========================
+# --- دالة الجذر الرقمي ---
 def digital_root(price):
-    s = str(int(price)).replace('.', '').replace('-', '').lstrip('0')
-    if not s: return 0
-    total = sum(int(d) for d in s)
-    return 1 + (total - 1) % 9 if total != 0 else 0
+    try:
+        s = str(int(price)).replace('.', '').replace('-', '').lstrip('0')
+        if not s: return 0
+        total = sum(int(d) for d in s)
+        return 1 + (total - 1) % 9 if total != 0 else 0
+    except:
+        return 0
 
-# ==========================
-# FVG Detection
-# ==========================
+# --- اكتشاف فجوات القيمة العادلة FVG ---
 def detect_fvg(df):
     if df is None or len(df) < 5:
-        return "NO_DATA", 0.0
-    for i in range(len(df) - 3, 1, -1):
+        return "NEUTRAL", 0.0
+    # فحص آخر الشموع المكتملة
+    for i in range(len(df) - 4, 1, -1):
+        # Bullish FVG
         if df['Low'].iloc[i] > df['High'].iloc[i + 2]:
             gap_price = (df['Low'].iloc[i] + df['High'].iloc[i + 2]) / 2
             return "BULLISH_FVG", gap_price
+        # Bearish FVG
         if df['High'].iloc[i] < df['Low'].iloc[i + 2]:
             gap_price = (df['High'].iloc[i] + df['Low'].iloc[i + 2]) / 2
             return "BEARISH_FVG", gap_price
     return "NEUTRAL", 0.0
 
-# ==========================
-# News Sentiment
-# ==========================
+# --- جلب وتحليل الأخبار ---
 def fetch_news():
     titles = []
     for url in RSS_FEEDS:
@@ -94,41 +87,52 @@ def analyze_sentiment(text):
     q_score = np.mean(q_scores) if q_scores else 0.5
     return np.clip(v_score * 0.6 + q_score * 0.4, 0.0, 1.0)
 
-# ==========================
-# Report Builder
-# ==========================
+# --- بناء التقرير النهائي ---
 def build_report(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        df_m15 = ticker.history(interval="15m", period="1d")
-        if df_m15.empty: return "❌ لا توجد بيانات من ياهو فايننس"
+        df = ticker.history(interval="15m", period="2d")
         
-        current_price = df_m15['Close'].iloc[-1]
+        if df.empty:
+            return "❌ خطأ: لم يتم العثور على بيانات للرمز."
+
+        current_price = df['Close'].iloc[-1]
         root = digital_root(current_price)
-        fvg_status, fvg_price = detect_fvg(df_m15)
+        fvg_status, fvg_price = detect_fvg(df)
         
-        # MACD Trend
-        _, _, hist = macd(df_m15['Close'])
-        trend = "BULLISH" if hist.iloc[-1] > 0 else "BEARISH"
+        _, _, hist = macd(df['Close'])
+        macd_val = hist.iloc[-1]
+        trend = "BULLISH 🟢" if macd_val > 0 else "BEARISH 🔴"
         
         news_text = fetch_news()
-        sentiment_score = analyze_sentiment(news_text)
-        
-        report = f"""
-[تقرير ذكاء كوانتا الهجين - نسخة السحاب]
-الأصل: {symbol} | السعر الحالي: {current_price:.2f}
-الوقت: {datetime.now(pytz.timezone('Africa/Cairo')).strftime('%Y-%m-%d %I:%M %p')}
+        score = analyze_sentiment(news_text)
+        sentiment_label = "إيجابي" if score > 0.6 else "سلبي" if score < 0.4 else "محايد"
 
-الجذر الرقمي: {root}
-اتجاه MACD (15m): {trend}
-حالة FVG: {fvg_status} | السعر: {fvg_price:.2f}
-درجة المشاعر: {sentiment_score:.2f}
+        report = f"""
+🚀 [تقرير ذكاء كوانتا الهجين v2026]
 ---------------------------------
-#كوانتا_فينتيك #تداول_ذكي
+الأصل: {symbol}
+السعر الحالي: {current_price:.2f}
+التوقيت: {datetime.now(pytz.timezone('Africa/Cairo')).strftime('%Y-%m-%d %I:%M %p')}
+
+✅ التحليل الرقمي:
+- الجذر الرقمي: {root} ({'دورة قوية' if root in [1,9] else 'دورة عادية'})
+
+📊 التحليل الفني:
+- اتجاه MACD (15m): {trend}
+- حالة الفجوة (FVG): {fvg_status}
+- سعر الفجوة المستهدف: {fvg_price:.2f}
+
+📰 تحليل المشاعر (AI):
+- الدرجة: {score:.2f}
+- التصنيف: {sentiment_label}
+
+---------------------------------
+#كوانتا_فينتيك #تداول_ذكي #محمد_محرم
 """
         return report
     except Exception as e:
-        return f"❌ خطأ تقني: {str(e)}"
+        return f"❌ خطأ تقني في النظام: {str(e)}"
 
 if __name__ == "__main__":
     print(build_report(SYMBOL))
