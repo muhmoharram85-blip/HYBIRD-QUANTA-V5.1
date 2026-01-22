@@ -1,9 +1,7 @@
-flask==3.0.0
-ccxt==4.2.0
-pandas==2.1.4
-numpy==1.26.2
-feedparser==6.0.10
+flask==3.0.3
+pandas==2.2.3
+numpy==2.0.2
+feedparser==6.0.11
 vaderSentiment==3.3.2
-pytz==2023.3
-gunicorn==21.2.0
-Werkzeug==3.0.1
+ccxt==4.3.0
+pytz==2024.2
