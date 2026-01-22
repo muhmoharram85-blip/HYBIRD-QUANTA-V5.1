@@ -1,7 +1,6 @@
 # =============================================
 # HYBRID QUANTA ULTIMATE v2026 - REVISED
 # المطور: محمد محرم
-# التعديلات: إصلاح FVG + تحسين الجذر الرقمي + دعم عربي/إنجليزي في المشاعر
 # =============================================
 
 import MetaTrader5 as mt5
@@ -25,26 +24,21 @@ TIMEFRAMES = {
 
 vader = SentimentIntensityAnalyzer()
 
-# --- قاموس QTT المطور (يدعم كلمات عربية وإنجليزية) ---
 qtt_lexicon = {
-    # إنجليزي
     "growth": 0.92, "rally": 0.88, "bullish": 0.90, "uptrend": 0.85,
     "surge": 0.87, "etf": 0.82, "accumulation": 0.88, "institutional": 0.90,
     "whale": 0.88, "crash": 0.15, "drop": 0.30, "bearish": 0.25,
-    "sell-off": 0.28,
-    # عربي
-    "ارتفاع": 0.88, "تجميع": 0.87, "اختراق": 0.90,
+    "sell-off": 0.28, "ارتفاع": 0.88, "تجميع": 0.87, "اختراق": 0.90,
     "هبوط": 0.30, "تصحيح": 0.38, "ضعف": 0.35
 }
 
-# --- RSS Sources ---
 RSS_FEEDS = [
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
     "https://cryptopotato.com/feed/"
 ]
 
 # ==========================
-# MACD (تم إصلاح تداخل الأسطر هنا)
+# MACD - تم تصحيح فصل الأسطر هنا
 # ==========================
 def macd(series, fast=12, slow=26, signal=9):
     exp1 = series.ewm(span=fast, adjust=False).mean()
@@ -60,24 +54,21 @@ def macd_trend(df):
     return "BULLISH" if last > 0 else "BEARISH" if last < 0 else "NEUTRAL"
 
 # ==========================
-# Digital Root (مُحسّن)
+# Digital Root
 # ==========================
 def digital_root(price):
-    s = str(price).replace('.', '').replace('-', '')
-    s = s.lstrip('0')
-    if not s:
-        return 0
+    s = str(price).replace('.', '').replace('-', '').lstrip('0')
+    if not s: return 0
     total = sum(int(d) for d in s)
     return 1 + (total - 1) % 9 if total != 0 else 0
 
 # ==========================
-# FVG Detection (مُصلَح)
+# FVG Detection
 # ==========================
 def detect_fvg(symbol, tf):
     rates = mt5.copy_rates_from_pos(symbol, tf, 0, 100)
     if rates is None or len(rates) < 10:
         return "NO_DATA", 0.0
-
     df = pd.DataFrame(rates)
     for i in range(len(df) - 3, 1, -1):
         if df['low'].iloc[i] > df['high'].iloc[i + 2]:
@@ -89,7 +80,7 @@ def detect_fvg(symbol, tf):
     return "NEUTRAL", 0.0
 
 # ==========================
-# Market Reaction (Volume) (تم إصلاح تداخل الأسطر هنا)
+# Market Reaction
 # ==========================
 def market_reaction(symbol, tf):
     rates = mt5.copy_rates_from_pos(symbol, tf, 0, 30)
@@ -98,13 +89,11 @@ def market_reaction(symbol, tf):
     df = pd.DataFrame(rates)
     recent_vol = df['tick_volume'].iloc[-5:].mean()
     past_vol = df['tick_volume'].iloc[-15:-5].mean()
-    if past_vol == 0:
-        return "WEAK"
-    vol_change = recent_vol / past_vol
-    return "STRONG" if vol_change > 1.4 else "WEAK"
+    if past_vol == 0: return "WEAK"
+    return "STRONG" if (recent_vol / past_vol) > 1.4 else "WEAK"
 
 # ==========================
-# News Sentiment
+# Sentiment & Report
 # ==========================
 def fetch_news():
     titles = []
@@ -112,105 +101,34 @@ def fetch_news():
         try:
             feed = feedparser.parse(url)
             for entry in feed.entries[:3]:
-                text = entry.title + " " + (entry.summary if 'summary' in entry else "")
-                titles.append(text)
-        except Exception as e:
-            print(f"[تحذير] فشل تحميل الأخبار من {url}: {e}")
-            continue
+                titles.append(entry.title + " " + entry.get('summary', ""))
+        except: continue
     return " | ".join(titles[:5])
 
 def analyze_sentiment(text):
     clean_text = re.sub(r'<[^>]+>', '', text)
+    v_score = (vader.polarity_scores(clean_text)['compound'] + 1) / 2
     words = clean_text.lower().split()
-    
-    v_score = vader.polarity_scores(clean_text)['compound']
-    v_norm = (v_score + 1) / 2
-
     q_scores = [qtt_lexicon.get(w, 0.5) for w in words if w in qtt_lexicon]
     q_score = np.mean(q_scores) if q_scores else 0.5
+    return np.clip(v_score * 0.6 + q_score * 0.4, 0.0, 1.0)
 
-    final = v_norm * 0.6 + q_score * 0.4
-    return np.clip(final, 0.0, 1.0)
-
-# ==========================
-# Report Builder
-# ==========================
 def build_report(symbol, base_tf_name="M15"):
-    if not mt5.initialize():
-        return "❌ خطأ: فشل تهيئة MT5"
-    if not mt5.symbol_select(symbol, True):
-        mt5.shutdown()
-        return f"❌ الرمز {symbol} غير متاح في MT5"
-
+    if not mt5.initialize(): return "❌ MT5 Error"
     tick = mt5.symbol_info_tick(symbol)
-    if tick is None:
-        mt5.shutdown()
-        return "❌ لا يمكن جلب سعر حي"
-
+    if not tick: return "❌ Tick Error"
+    
     price = tick.bid
     root = digital_root(price)
-
     fvg_status, fvg_price = detect_fvg(symbol, TIMEFRAMES[base_tf_name])
     reaction = market_reaction(symbol, TIMEFRAMES[base_tf_name])
-
-    macd_trends = {}
-    for tf_name, tf in TIMEFRAMES.items():
-        rates = mt5.copy_rates_from_pos(symbol, tf, 0, 200)
-        if rates is None or len(rates) < 50:
-            macd_trends[tf_name] = "NO_DATA"
-            continue
-        df = pd.DataFrame(rates)
-        macd_trends[tf_name] = macd_trend(df)
-
+    
     news_text = fetch_news()
     sentiment_score = analyze_sentiment(news_text)
-    sentiment_label = "Bullish" if sentiment_score > 0.6 else "Bearish" if sentiment_score < 0.4 else "Neutral"
-
-    high_confidence = (root in [1, 9]) and (reaction == "STRONG")
-    verdict = "High Conviction" if high_confidence else "Monitoring"
-
-    action = "N/A"
-    sl, tp = 0.0, 0.0
-    if verdict == "High Conviction":
-        if fvg_status == "BULLISH_FVG" and sentiment_score > 0.55:
-            action = "BUY"
-            sl = fvg_price if fvg_price > 0 else price * 0.98
-            tp = price * 1.04
-        elif fvg_status == "BEARISH_FVG" and sentiment_score < 0.45:
-            action = "SELL"
-            sl = fvg_price if fvg_price > 0 else price * 1.02
-            tp = price * 0.96
-
-    report = f"""
-[تقرير ذكاء كوانتا الهجين]
-الأصل: {symbol} | السعر: {price:.1f}
-الوقت: {datetime.now(pytz.timezone('Africa/Cairo')).strftime('%d %b %Y | %I:%M %p (EET)')}
-
-الجذر الرقمي: {root} ({'دورة نشطة' if root in [1,9] else 'مستقر'})
-حالة FVG: {fvg_status} | سعر الفجوة: {fvg_price:.1f}
-رد فعل السوق: {reaction}
-
-اتجاه MACD عبر الأطر الزمنية:
-"""
-    for tf, tr in macd_trends.items():
-        report += f"- {tf}: {tr}\n"
-
-    report += f"""
-تحليل المشاعر:
-- الدرجة: {sentiment_score:.2f}
-- التصنيف: {sentiment_label}
-
-الحكم: {verdict}
-الإجراء المقترح: {action}
-وقف الخسارة: {sl:.1f} | أخذ الربح: {tp:.1f}
----------------------------------
-#كوانتا_فينتيك #تداول_ذكي #FVG #MACD #تحليل_مشاعر
-"""
+    
+    report = f"Original: {symbol} | Price: {price}\nDigital Root: {root}\nFVG: {fvg_status}\nSentiment: {sentiment_score:.2f}"
     mt5.shutdown()
     return report
 
-# ==========================
-# Main
-# ==========================
 if __name__ == "__main__":
     print(build_report(SYMBOL, "M15"))
