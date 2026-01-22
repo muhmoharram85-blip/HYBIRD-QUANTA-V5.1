@@ -1,7 +1,6 @@
 # =============================================
-# HYBRID QUANTA ULTIMATE v2026 - Render Ready Edition
+# HYBRID QUANTA ULTIMATE v2026 - Render Ready
 # Developer: MUHAMMAD MUHARRAM
-# Optimized for Render.com & GitHub
 # =============================================
 
 import os
@@ -15,17 +14,14 @@ import numpy as np
 import requests
 import pytz
 
-# Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Environment variables
 PORT = int(os.getenv('PORT', 10000))
-SYMBOL = os.getenv('SYMBOL', 'bitcoin')  # CoinGecko ID (bitcoin, ethereum, etc.)
+SYMBOL = os.getenv('SYMBOL', 'bitcoin')  # CoinGecko ID
 
-# VADER + QTT Lexicon
 vader = SentimentIntensityAnalyzer()
 
 qtt_lexicon = {
@@ -43,7 +39,6 @@ RSS_FEEDS = [
     "https://cointelegraph.com/rss"
 ]
 
-# Fetch price from CoinGecko (free, no API key required)
 def get_price():
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={SYMBOL}&vs_currencies=usd"
@@ -55,7 +50,6 @@ def get_price():
         logger.error(f"Price fetch error: {e}")
         return None
 
-# Cycle Completion (Time Cycle - no "digital root" term)
 def cycle_completion(price: float) -> int:
     s = str(price).replace('.', '').replace('-', '').lstrip('0')
     if not s:
@@ -63,7 +57,6 @@ def cycle_completion(price: float) -> int:
     total = sum(int(d) for d in s)
     return 1 + (total - 1) % 9 if total != 0 else 0
 
-# News & Sentiment Analysis
 def analyze_news():
     titles = []
     for url in RSS_FEEDS:
@@ -80,7 +73,6 @@ def analyze_news():
     final = np.clip((score + 1)/2 * 0.6 + q * 0.4, 0, 1)
     return {"score": round(final, 2), "text_preview": text[:200]}
 
-# Main Analysis Function
 def run_analysis():
     price = get_price()
     if not price:
@@ -97,7 +89,6 @@ def run_analysis():
         "sentiment": news
     }
 
-# Home Page (HTML Interface)
 @app.route('/')
 def home():
     return """
