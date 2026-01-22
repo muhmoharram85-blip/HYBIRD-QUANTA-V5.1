@@ -1,9 +1,3 @@
-# =============================================
-# HYBRID QUANTA ULTIMATE v2026 - FINAL FIXED
-# المطور: محمد محرم
-# تم إصلاح أخطاء Syntax وأخطاء التوافق مع Linux
-# =============================================
-
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -12,25 +6,25 @@ from datetime import datetime
 import pytz
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import re
+import requests
 
-# --- الإعدادات ---
-SYMBOL = "BTC-USD" 
+# --- إعدادات تلجرام (ضع بياناتك هنا) ---
+# انسخ التوكن من الصورة التي أرفقتها وضعه بين القوسين
+TELEGRAM_TOKEN = "7543883447:AAH..." 
+# ضع الآيدي الخاص بك هنا (الذي حصلت عليه من IDBot)
+CHAT_ID = "ضع_هنا_الرقم" 
+
+SYMBOL = "BTC-USD"
 vader = SentimentIntensityAnalyzer()
 
-qtt_lexicon = {
-    "growth": 0.92, "rally": 0.88, "bullish": 0.90, "uptrend": 0.85,
-    "surge": 0.87, "etf": 0.82, "accumulation": 0.88, "institutional": 0.90,
-    "whale": 0.88, "crash": 0.15, "drop": 0.30, "bearish": 0.25,
-    "sell-off": 0.28, "ارتفاع": 0.88, "تجميع": 0.87, "اختراق": 0.90,
-    "هبوط": 0.30, "تصحيح": 0.38, "ضعف": 0.35
-}
+def send_to_telegram(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Error: {e}")
 
-RSS_FEEDS = [
-    "https://www.coindesk.com/arc/outboundfeeds/rss/",
-    "https://cryptopotato.com/feed/"
-]
-
-# --- دالة MACD (تم إصلاح فصل الأسطر لتجنب SyntaxError) ---
 def macd(series, fast=12, slow=26, signal=9):
     exp1 = series.ewm(span=fast, adjust=False).mean()
     exp2 = series.ewm(span=slow, adjust=False).mean()
@@ -39,50 +33,20 @@ def macd(series, fast=12, slow=26, signal=9):
     hist = macd_line - signal_line
     return macd_line, signal_line, hist
 
-# --- دالة الجذر الرقمي ---
 def digital_root(price):
     try:
         s = str(int(price)).replace('.', '').replace('-', '').lstrip('0')
-        if not s: return 0
         total = sum(int(d) for d in s)
         return 1 + (total - 1) % 9 if total != 0 else 0
-    except:
-        return 0
+    except: return 0
 
-# --- اكتشاف FVG ---
-def detect_fvg(df):
-    if df is None or len(df) < 5:
-        return "NEUTRAL", 0.0
-    for i in range(len(df) - 4, 1, -1):
-        if df['Low'].iloc[i] > df['High'].iloc[i + 2]:
-            gap_price = (df['Low'].iloc[i] + df['High'].iloc[i + 2]) / 2
-            return "BULLISH_FVG", gap_price
-        if df['High'].iloc[i] < df['Low'].iloc[i + 2]:
-            gap_price = (df['High'].iloc[i] + df['Low'].iloc[i + 2]) / 2
-            return "BEARISH_FVG", gap_price
-    return "NEUTRAL", 0.0
-
-# --- تحليل الأخبار ---
 def fetch_news():
     titles = []
-    for url in RSS_FEEDS:
-        try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:3]:
-                titles.append(entry.title + " " + entry.get('summary', ""))
-        except: continue
-    return " | ".join(titles[:5])
+    feed = feedparser.parse("https://www.coindesk.com/arc/outboundfeeds/rss/")
+    for entry in feed.entries[:3]:
+        titles.append(entry.title)
+    return " | ".join(titles)
 
-def analyze_sentiment(text):
-    if not text: return 0.5
-    clean_text = re.sub(r'<[^>]+>', '', text)
-    v_score = (vader.polarity_scores(clean_text)['compound'] + 1) / 2
-    words = clean_text.lower().split()
-    q_scores = [qtt_lexicon.get(w, 0.5) for w in words if w in qtt_lexicon]
-    q_score = np.mean(q_scores) if q_scores else 0.5
-    return np.clip(v_score * 0.6 + q_score * 0.4, 0.0, 1.0)
-
-# --- بناء التقرير ---
 def build_report(symbol):
     try:
         ticker = yf.Ticker(symbol)
@@ -91,26 +55,25 @@ def build_report(symbol):
 
         current_price = df['Close'].iloc[-1]
         root = digital_root(current_price)
-        fvg_status, fvg_price = detect_fvg(df)
-        
         _, _, hist = macd(df['Close'])
-        trend = "BULLISH 🟢" if hist.iloc[-1] > 0 else "BEARISH 🔴"
-        
-        score = analyze_sentiment(fetch_news())
+        trend = "صعودي 🟢" if hist.iloc[-1] > 0 else "هبوطي 🔴"
         
         report = f"""
-🚀 [تقرير كوانتا النهائي v2026]
+<b>🚀 [تقرير كوانتا المباشر]</b>
 ---------------------------------
-الأصل: {symbol} | السعر: {current_price:.2f}
-الجذر الرقمي: {root} | الاتجاه: {trend}
-حالة FVG: {fvg_status} | السعر: {fvg_price:.2f}
-درجة المشاعر: {score:.2f}
+<b>الأصل:</b> {symbol}
+<b>السعر:</b> {current_price:.2f}
+<b>الجذر الرقمي:</b> {root}
+<b>الاتجاه الحالي:</b> {trend}
+<b>التوقيت:</b> {datetime.now(pytz.timezone('Africa/Cairo')).strftime('%Y-%m-%d %I:%M %p')}
 ---------------------------------
-#كوانتا_فينتيك #تداول_ذكي
+#كوانتا_فينتيك
 """
         return report
     except Exception as e:
         return f"❌ خطأ: {str(e)}"
 
 if __name__ == "__main__":
-    print(build_report(SYMBOL))
+    final_report = build_report(SYMBOL)
+    send_to_telegram(final_report)
+    print("✅ تم إرسال التقرير إلى تلجرام")
